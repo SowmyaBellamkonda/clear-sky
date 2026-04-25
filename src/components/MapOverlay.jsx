@@ -8,7 +8,8 @@ import { useAQI } from '../context/AQIContext';
 import { fetchAqiData, fetchAqiDataReadonly } from '../services/aqiService';
 
 const API_KEY = import.meta.env.VITE_OWM_API_KEY;
-const BACKEND_URL = 'http://localhost:5000/api';
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+const BACKEND_URL = `${API_BASE}/api`;
 
 const getAqiColor = (aqi) => {
     if (aqi <= 50) return '#10b981';

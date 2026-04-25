@@ -135,14 +135,25 @@ def predict_aqi(payload: PredictInput):
 
 # --- Eco-Health Score Endpoint ---
 @app.get("/eco-score")
-def get_eco_score(lat: float, lon: float, aqi: int = 50):
+def get_eco_score(lat: float, lon: float, aqi: int = 50, temp: float | None = None, humidity: float | None = None):
     """Get the Eco-Health Score for a location using GEE satellite NDVI data."""
     try:
         from eco_service import fetch_ndvi, fetch_weather, compute_eco_score
 
-        ndvi = fetch_ndvi(lat, lon)
-        weather = fetch_weather(lat, lon)
-        result = compute_eco_score(ndvi, aqi, weather["temp"], weather["humidity"])
+        ndvi_result = fetch_ndvi(lat, lon)
+        weather = fetch_weather(lat, lon, temp=temp, humidity=humidity)
+        result = compute_eco_score(
+            ndvi_result["ndvi"],
+            aqi,
+            weather["temp"],
+            weather["humidity"],
+            sources={
+                "ndvi": ndvi_result.get("source", "unknown"),
+                "ndvi_error": ndvi_result.get("error"),
+                "weather": weather.get("source", "unknown"),
+                "aqi": "openweathermap-air-pollution",
+            },
+        )
 
         return result
     except Exception as e:

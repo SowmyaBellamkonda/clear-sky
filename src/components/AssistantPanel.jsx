@@ -3,6 +3,8 @@ import GlassLayout from './GlassLayout';
 import { useAQI } from '../context/AQIContext';
 import { AQI_LEVELS } from '../utils/theme';
 
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+
 const AssistantPanel = ({ isOpen, onClose }) => {
     const { theme, aqiValue, locationName, coords } = useAQI();
     const [messages, setMessages] = useState([]);
@@ -42,7 +44,7 @@ const AssistantPanel = ({ isOpen, onClose }) => {
         setIsLoading(true);
 
         try {
-            const response = await fetch('http://localhost:5000/api/chat', {
+            const response = await fetch(`${API_BASE}/api/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

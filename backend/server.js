@@ -16,13 +16,24 @@ connectDB();
 
 const app = express();
 
+const corsOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
 // Middleware
-app.use(cors());
+app.use(cors(corsOrigins.length > 0 ? { origin: corsOrigins } : undefined));
 app.use(express.json());
 
 // Enable if you're behind a reverse proxy (Heroku, Bluemix, AWS ELB, Nginx, etc)
 // see https://expressjs.com/en/guide/behind-proxies.html
-// app.set('trust proxy', 1);
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+}
+
+app.get('/health', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
 
 const rateLimit = require('express-rate-limit');
 const apiLimiter = rateLimit({

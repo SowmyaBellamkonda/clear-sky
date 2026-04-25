@@ -43,12 +43,7 @@ export const AQIProvider = ({ children }) => {
 
             setMlPrediction(data.mlPrediction);
             setCurrentComponents(data.components);
-
-            // Fetch eco-health score in background (non-blocking)
-            fetch(`http://localhost:5000/api/eco-score?lat=${lat}&lon=${lon}`)
-                .then(r => r.json())
-                .then(ecoData => { if (!ecoData.error) setEcoScore(ecoData); })
-                .catch(err => console.error('Eco-score fetch error:', err));
+            setEcoScore(data.ecoScore || null);
         } catch (err) {
             console.error(err);
             setErrorData(err.message);

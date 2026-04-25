@@ -57,13 +57,22 @@ cd clearskyPredictor
 Create a `.env` file in the `backend/` directory with your API credentials:
 ```env
 MONGO_URI="mongodb://localhost:27017/clearsky"
-VITE_OWM_API_KEY="your_openweathermap_key"
+OPENWEATHER_API_KEY="your_openweathermap_key"
 HUGGINGFACE_API_KEY="your_huggingface_key"
+ML_SERVICE_URL="http://localhost:8000"
 ```
 
-**Important:** Also place your Google Earth Engine service account key at:
+For local ML service credentials, place your Google Earth Engine service account key at:
 ```
 ml-service/gee-key.json
+```
+
+Or use environment variables (recommended for cloud):
+```env
+GEE_SERVICE_ACCOUNT_JSON="{...full service account json...}"
+# OR base64 version
+GEE_SERVICE_ACCOUNT_JSON_B64="..."
+GEE_PROJECT="your-gcp-project-id"
 ```
 
 #### Step 3: Install Root Dependencies (Optional)
@@ -91,7 +100,7 @@ cd backend
 npm install
 npm run dev
 ```
-The backend API will run on `http://localhost:3000` (or configured port)
+The backend API will run on `http://localhost:5000` (or configured port)
 
 #### Step 6: Start the React Vite Frontend (Terminal 3)
 ```bash
@@ -103,7 +112,7 @@ The frontend will run on `http://localhost:5173`
 ### Running the Full Stack
 All three services must be running simultaneously:
 - **Frontend:** http://localhost:5173
-- **Backend API:** http://localhost:3000
+- **Backend API:** http://localhost:5000
 - **ML Service:** http://localhost:8000
 
 Open your browser and navigate to `http://localhost:5173` to access the application.
@@ -128,3 +137,45 @@ The backend logic inherently mitigates local DB cold-starts via a normalized noi
   Relays requests dynamically to the Python ML server, combining API meteorological metrics logically with high-density GEE vegetative cover (NDVI).
 - **`POST /api/chat`**
   Handles natural language generation requests contextually structured with location scopes returning optimized conversational replies.
+
+---
+
+## ☁️ Deployment (Render + Vercel)
+
+### Vercel (Frontend)
+Set these environment variables:
+```env
+VITE_BACKEND_URL="https://your-render-backend.onrender.com"
+VITE_OWM_API_KEY="your_openweathermap_key"
+```
+
+### Render (Backend)
+Deploy `backend/` as a Node Web Service and set:
+```env
+NODE_ENV="production"
+MONGO_URI="your-mongodb-uri"
+OPENWEATHER_API_KEY="your_openweathermap_key"
+HUGGINGFACE_API_KEY="your_huggingface_key"
+ML_SERVICE_URL="https://your-render-ml-service.onrender.com"
+CORS_ORIGINS="https://your-vercel-app.vercel.app"
+```
+
+### Render (ML Service)
+Deploy `ml-service/` as a Python Web Service and set:
+```env
+OWM_API_KEY="your_openweathermap_key"
+GEE_PROJECT="your-gcp-project-id"
+GEE_SERVICE_ACCOUNT_JSON="{...service account json...}"
+```
+
+Start command example:
+```bash
+uvicorn app:app --host 0.0.0.0 --port $PORT
+```
+
+### Required Google IAM for NDVI
+The Google service account used for Earth Engine must have:
+- Earth Engine access enabled for the account/project
+- `roles/serviceusage.serviceUsageConsumer` on the configured `GEE_PROJECT`
+
+Without this, NDVI falls back to `0.3` and the app will show fallback source metadata.

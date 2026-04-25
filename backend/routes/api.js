@@ -8,8 +8,16 @@ const dotenv = require('dotenv');
 // we'll instruct the user or fallback
 dotenv.config({ path: '../.env' }); // try to read from root if possible
 
-const OPENWEATHER_API_KEY = process.env.VITE_OWM_API_KEY || 'YOUR_OPENWEATHER_API_KEY';
+const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || process.env.VITE_OWM_API_KEY;
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+
+const requireOpenWeatherKey = (res) => {
+    if (!OPENWEATHER_API_KEY) {
+        res.status(503).json({ error: 'Server missing OPENWEATHER_API_KEY configuration' });
+        return false;
+    }
+    return true;
+};
 
 router.get('/predict', async (req, res) => {
     const { lat, lon, save } = req.query;
@@ -17,6 +25,7 @@ router.get('/predict', async (req, res) => {
     if (!lat || !lon) {
         return res.status(400).json({ error: 'Latitude and Longitude are required' });
     }
+    if (!requireOpenWeatherKey(res)) return;
 
     try {
         // 1. Fetch current weather and pollution from OpenWeatherMap
@@ -424,6 +433,8 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 
 router.get('/world-aqi', async (req, res) => {
     try {
+        if (!requireOpenWeatherKey(res)) return;
+
         // Return cached data if fresh
         if (worldAqiCache && (Date.now() - worldAqiCacheTime) < CACHE_DURATION) {
             return res.json({ cities: worldAqiCache });
@@ -473,21 +484,38 @@ router.get('/eco-score', async (req, res) => {
     if (!lat || !lon) {
         return res.status(400).json({ error: 'lat and lon are required' });
     }
+    if (!requireOpenWeatherKey(res)) return;
 
     try {
         // Get current AQI from OWM first
         const pollutionRes = await axios.get(
             `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}`
         );
+        const weatherRes = await axios.get(
+            `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}&units=metric`
+        );
+
         const owmAqi = pollutionRes.data.list[0].main.aqi;
         const usAqi = owmAqi === 1 ? 25 : owmAqi === 2 ? 75 : owmAqi === 3 ? 125 : owmAqi === 4 ? 175 : 250;
+        const temp = weatherRes.data?.main?.temp;
+        const humidity = weatherRes.data?.main?.humidity;
 
         // Call ML service for eco-score
         const ecoRes = await axios.get(
-            `${ML_SERVICE_URL}/eco-score?lat=${lat}&lon=${lon}&aqi=${usAqi}`
+            `${ML_SERVICE_URL}/eco-score?lat=${lat}&lon=${lon}&aqi=${usAqi}${temp != null ? `&temp=${temp}` : ''}${humidity != null ? `&humidity=${humidity}` : ''}`
         );
 
-        res.json(ecoRes.data);
+        res.json({
+            ...ecoRes.data,
+            sources: {
+                ...(ecoRes.data.sources || {}),
+                aqi: {
+                    source: 'openweathermap-air-pollution',
+                    raw_owm_aqi: owmAqi,
+                    us_epa_aqi: usAqi,
+                },
+            },
+        });
     } catch (error) {
         console.error('Error in /eco-score endpoint:', error.message);
         res.status(500).json({ error: 'Failed to fetch eco-health score' });

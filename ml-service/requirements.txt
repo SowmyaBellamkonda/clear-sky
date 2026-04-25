@@ -5,3 +5,7 @@ pandas
 numpy
 scikit-learn
 pydantic
+tensorflow
+requests
+google-auth
+earthengine-api

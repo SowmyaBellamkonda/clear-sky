@@ -6,28 +6,58 @@ and combines with AQI + weather for a composite eco-health score.
 
 import os
 import json
+import base64
 import time
 import requests
 from google.oauth2 import service_account
 
+try:
+    import ee
+except Exception:
+    ee = None
+
 # --- GEE Auth ---
-GEE_KEY_PATH = os.path.join(os.path.dirname(__file__), "gee-key.json")
+GEE_KEY_PATH = os.environ.get("GEE_KEY_PATH", os.path.join(os.path.dirname(__file__), "gee-key.json"))
 GEE_PROJECT = "clear-sky-predictor"
 SCOPES = ["https://www.googleapis.com/auth/earthengine"]
 
 _credentials = None
-_ndvi_cache = {}  # key: "lat,lon" -> { ndvi, timestamp }
+_service_account_info = None
+_ndvi_cache = {}  # key: "lat,lon" -> { ndvi, source, timestamp }
 CACHE_TTL = 3600  # 1 hour
 
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "") or os.environ.get("VITE_OWM_API_KEY", "")
+
+
+def _get_service_account_info() -> dict:
+    """Resolve service account credentials from env vars or local key file."""
+    global _service_account_info
+    if _service_account_info is not None:
+        return _service_account_info
+
+    raw_json = os.environ.get("GEE_SERVICE_ACCOUNT_JSON")
+    raw_json_b64 = os.environ.get("GEE_SERVICE_ACCOUNT_JSON_B64")
+
+    if raw_json:
+        _service_account_info = json.loads(raw_json)
+        return _service_account_info
+
+    if raw_json_b64:
+        decoded = base64.b64decode(raw_json_b64).decode("utf-8")
+        _service_account_info = json.loads(decoded)
+        return _service_account_info
+
+    with open(GEE_KEY_PATH, "r", encoding="utf-8") as key_file:
+        _service_account_info = json.load(key_file)
+        return _service_account_info
 
 
 def _get_credentials():
     """Get or refresh GEE service account credentials."""
     global _credentials
     if _credentials is None or _credentials.expired:
-        _credentials = service_account.Credentials.from_service_account_file(
-            GEE_KEY_PATH, scopes=SCOPES
+        _credentials = service_account.Credentials.from_service_account_info(
+            _get_service_account_info(), scopes=SCOPES
         )
         from google.auth.transport.requests import Request
         _credentials.refresh(Request())
@@ -43,7 +73,31 @@ def _get_access_token():
     return creds.token
 
 
-def fetch_ndvi(lat: float, lon: float) -> float:
+def _get_gee_project_candidates() -> list[str]:
+    """Resolve candidate GEE projects in priority order."""
+    candidates = []
+
+    env_project = os.environ.get("GEE_PROJECT")
+    if env_project:
+        candidates.append(env_project)
+
+    try:
+        key_data = _get_service_account_info()
+        if key_data.get("project_id"):
+            candidates.append(key_data["project_id"])
+    except Exception:
+        pass
+
+    candidates.append(GEE_PROJECT)
+
+    unique_candidates = []
+    for project in candidates:
+        if project and project not in unique_candidates:
+            unique_candidates.append(project)
+    return unique_candidates
+
+
+def fetch_ndvi(lat: float, lon: float) -> dict:
     """
     Fetch mean NDVI for a ~10km area around (lat, lon) using
     MODIS MOD13A2 (16-day 1km NDVI) via the GEE REST API.
@@ -56,118 +110,77 @@ def fetch_ndvi(lat: float, lon: float) -> float:
     if cache_key in _ndvi_cache:
         cached = _ndvi_cache[cache_key]
         if now - cached["timestamp"] < CACHE_TTL:
-            return cached["ndvi"]
+            return {
+                "ndvi": cached["ndvi"],
+                "source": cached.get("source", "cached"),
+                "error": cached.get("error"),
+            }
 
     try:
-        token = _get_access_token()
-        
-        # GEE REST API: compute mean NDVI for a region
-        # Using MODIS/006/MOD13A2 (16-day 1km NDVI product)
-        expression = {
-            "expression": {
-                "functionInvocationValue": {
-                    "functionName": "Element.getNumber",
-                    "arguments": {
-                        "object": {
-                            "functionInvocationValue": {
-                                "functionName": "Image.reduceRegion",
-                                "arguments": {
-                                    "image": {
-                                        "functionInvocationValue": {
-                                            "functionName": "Image.multiply",
-                                            "arguments": {
-                                                "image1": {
-                                                    "functionInvocationValue": {
-                                                        "functionName": "Image.select",
-                                                        "arguments": {
-                                                            "input": {
-                                                                "functionInvocationValue": {
-                                                                    "functionName": "Collection.first",
-                                                                    "arguments": {
-                                                                        "collection": {
-                                                                            "functionInvocationValue": {
-                                                                                "functionName": "ImageCollection.sort",
-                                                                                "arguments": {
-                                                                                    "collection": {
-                                                                                        "functionInvocationValue": {
-                                                                                            "functionName": "ImageCollection.load",
-                                                                                            "arguments": {
-                                                                                                "id": {"constantValue": "MODIS/061/MOD13A2"}
-                                                                                            }
-                                                                                        }
-                                                                                    },
-                                                                                    "property": {"constantValue": "system:time_start"},
-                                                                                    "ascending": {"constantValue": False}
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            },
-                                                            "bandSelectors": {"constantValue": ["NDVI"]}
-                                                        }
-                                                    }
-                                                },
-                                                "image2": {"constantValue": 0.0001}
-                                            }
-                                        }
-                                    },
-                                    "reducer": {
-                                        "functionInvocationValue": {
-                                            "functionName": "Reducer.mean",
-                                            "arguments": {}
-                                        }
-                                    },
-                                    "geometry": {
-                                        "functionInvocationValue": {
-                                            "functionName": "GeometryConstructors.Point",
-                                            "arguments": {
-                                                "coordinates": {"constantValue": [lon, lat]}
-                                            }
-                                        }
-                                    },
-                                    "scale": {"constantValue": 1000}
-                                }
-                            }
-                        },
-                        "key": {"constantValue": "NDVI"}
-                    }
-                }
-            }
-        }
+        if ee is None:
+            raise RuntimeError("earthengine-api not installed")
 
-        url = f"https://earthengine.googleapis.com/v1/projects/{GEE_PROJECT}:computeValue"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+        creds = _get_credentials()
+        last_error = None
+        ndvi_value = None
+        selected_project = None
 
-        resp = requests.post(url, headers=headers, json=expression, timeout=15)
-        
-        if resp.status_code == 200:
-            result = resp.json()
-            ndvi = result.get("result", 0.0)
-            if ndvi is None:
-                ndvi = 0.0
-            ndvi = max(-0.2, min(1.0, float(ndvi)))
-        else:
-            print(f"GEE API error ({resp.status_code}): {resp.text[:200]}")
-            ndvi = 0.3  # Default fallback
+        for project in _get_gee_project_candidates():
+            try:
+                ee.Initialize(credentials=creds, project=project)
 
+                point = ee.Geometry.Point([lon, lat])
+                latest_modis = (
+                    ee.ImageCollection("MODIS/061/MOD13A2")
+                    .sort("system:time_start", False)
+                    .first()
+                    .select("NDVI")
+                    .multiply(0.0001)
+                )
+
+                ndvi_value = latest_modis.reduceRegion(
+                    reducer=ee.Reducer.mean(),
+                    geometry=point,
+                    scale=1000,
+                ).get("NDVI").getInfo()
+                selected_project = project
+                break
+            except Exception as candidate_error:
+                last_error = candidate_error
+
+        if ndvi_value is None and last_error is not None:
+            raise last_error
+
+        if ndvi_value is None:
+            ndvi_value = 0.0
+
+        ndvi = max(-0.2, min(1.0, float(ndvi_value)))
+        source = f"google-earth-engine-sdk:{selected_project}" if selected_project else "google-earth-engine-sdk"
+        error_message = None
     except Exception as e:
-        print(f"Error fetching NDVI: {e}")
+        error_message = str(e)
+        print(f"Error fetching NDVI: {error_message}")
         ndvi = 0.3  # Fallback
+        source = "fallback:error"
 
     # Cache
-    _ndvi_cache[cache_key] = {"ndvi": ndvi, "timestamp": now}
-    return ndvi
+    _ndvi_cache[cache_key] = {
+        "ndvi": ndvi,
+        "source": source,
+        "error": error_message,
+        "timestamp": now,
+    }
+    return {"ndvi": ndvi, "source": source, "error": error_message}
 
 
-def fetch_weather(lat: float, lon: float) -> dict:
-    """Fetch temperature and humidity from OWM."""
+def fetch_weather(lat: float, lon: float, temp: float | None = None, humidity: float | None = None) -> dict:
+    """Fetch temperature and humidity from OWM, unless live values are already provided."""
     try:
+        if temp is not None and humidity is not None:
+            return {"temp": float(temp), "humidity": float(humidity), "source": "backend-live"}
+
         if not OWM_API_KEY:
-            return {"temp": 25.0, "humidity": 50.0}
+            return {"temp": 25.0, "humidity": 50.0, "source": "fallback:no-api-key"}
 
         url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&units=metric&appid={OWM_API_KEY}"
         resp = requests.get(url, timeout=10)
@@ -175,13 +188,18 @@ def fetch_weather(lat: float, lon: float) -> dict:
         return {
             "temp": data["main"]["temp"],
             "humidity": data["main"]["humidity"],
+            "source": "openweathermap",
         }
     except Exception as e:
         print(f"Weather fetch error: {e}")
-        return {"temp": 25.0, "humidity": 50.0}
+        return {
+            "temp": float(temp) if temp is not None else 25.0,
+            "humidity": float(humidity) if humidity is not None else 50.0,
+            "source": "fallback:error" if temp is None or humidity is None else "backend-live-fallback",
+        }
 
 
-def compute_eco_score(ndvi: float, aqi: int, temp: float, humidity: float) -> dict:
+def compute_eco_score(ndvi: float, aqi: int, temp: float, humidity: float, sources: dict | None = None) -> dict:
     """
     Compute the composite Eco-Health Score (0-100).
     
@@ -243,6 +261,7 @@ def compute_eco_score(ndvi: float, aqi: int, temp: float, humidity: float) -> di
         "eco_score": eco_score,
         "label": label,
         "recommendation": recommendation,
+        "sources": sources or {},
         "breakdown": {
             "ndvi": round(ndvi, 3),
             "ndvi_score": round(ndvi_score, 1),
