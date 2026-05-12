@@ -1,0 +1,25 @@
+{
+    "model_type": "lstm",
+    "features": [
+        "pm2_5",
+        "pm10",
+        "no2",
+        "so2",
+        "co",
+        "o3",
+        "temperature",
+        "humidity",
+        "wind_speed",
+        "wind_direction",
+        "pressure",
+        "day_of_week",
+        "month",
+        "aqi"
+    ],
+    "time_steps": 7,
+    "metrics": {
+        "rmse": 13.82495720303588,
+        "mae": 11.044487797484106
+    },
+    "version": "v2.0"
+}

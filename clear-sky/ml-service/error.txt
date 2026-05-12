@@ -1,0 +1,29 @@
+Model failed to load: Could not deserialize 'keras.metrics.mse' because it is not a KerasSaveable subclass
+Traceback (most recent call last):
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\test_model.py", line 8, in <module>
+    model = tf.keras.models.load_model('models/aqi_lstm_model.h5')
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\saving\saving_api.py", line 196, in load_model
+    return legacy_h5_format.load_model_from_hdf5(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\legacy\saving\legacy_h5_format.py", line 159, in load_model_from_hdf5
+    **saving_utils.compile_args_from_training_config(
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\legacy\saving\saving_utils.py", line 143, in compile_args_from_training_config
+    loss = _deserialize_nested_config(losses.deserialize, loss_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\legacy\saving\saving_utils.py", line 202, in _deserialize_nested_config
+    return deserialize_fn(config)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\losses\__init__.py", line 155, in deserialize
+    return serialization_lib.deserialize_keras_object(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\saving\serialization_lib.py", line 590, in deserialize_keras_object
+    return deserialize_keras_object(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\saving\serialization_lib.py", line 693, in deserialize_keras_object
+    return _retrieve_class_or_fn(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\shyam\OneDrive\Desktop\TIMEPASS\preview1\clear-sky\ml-service\venv\Lib\site-packages\keras\src\saving\serialization_lib.py", line 823, in _retrieve_class_or_fn
+    raise ValueError(
+ValueError: Could not deserialize 'keras.metrics.mse' because it is not a KerasSaveable subclass

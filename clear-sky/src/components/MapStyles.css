@@ -1,0 +1,49 @@
+/* ... append to index.css ... */
+
+/* Floating Map Button */
+.floating-map-btn {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    color: white;
+    cursor: pointer;
+    z-index: 1000;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.floating-map-btn:hover {
+    transform: translateY(-5px) scale(1.05);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.floating-map-btn:active {
+    transform: translateY(2px) scale(0.95);
+}
+
+/* Map Modal Search Adjustments */
+.map-modal-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.map-search-wrapper {
+    flex-grow: 1;
+    margin: 0 1.5rem;
+    position: relative;
+    z-index: 1100;
+}
+
+.map-search-wrapper .search-container {
+    width: 100%;
+    max-width: 400px;
+}
