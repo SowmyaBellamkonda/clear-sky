@@ -9,7 +9,8 @@ const path = require('path');
 // we'll instruct the user or fallback
 dotenv.config({ path: path.join(__dirname, '../../.env') }); // try to read from root if possible
 
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || process.env.VITE_OWM_API_KEY;
+const rawOwmKey = process.env.OPENWEATHER_API_KEY || process.env.VITE_OWM_API_KEY || '';
+const OPENWEATHER_API_KEY = rawOwmKey.trim().substring(0, 32);
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
 const requireOpenWeatherKey = (res) => {
