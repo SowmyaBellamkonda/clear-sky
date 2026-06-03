@@ -17,6 +17,7 @@ export const AQIProvider = ({ children }) => {
     const [locationName, setLocationName] = useState('Unknown Location');
     const [coords, setCoords] = useState({ lat: 0, lon: 0 });
     const [ecoScore, setEcoScore] = useState(null);
+    const [weatherData, setWeatherData] = useState(null);
 
     // Store the user's original geolocation — never changes after first set
     const homeCoords = useRef(null);
@@ -44,6 +45,7 @@ export const AQIProvider = ({ children }) => {
             setMlPrediction(data.mlPrediction);
             setCurrentComponents(data.components);
             setEcoScore(data.ecoScore || null);
+            setWeatherData(data.weatherData || null);
         } catch (err) {
             console.error(err);
             setErrorData(err.message);
@@ -51,6 +53,7 @@ export const AQIProvider = ({ children }) => {
             setMlPrediction(null);
             setCurrentComponents(null);
             setForecastIntervals(null);
+            setWeatherData(null);
         } finally {
             setIsLoadingData(false);
         }
@@ -86,6 +89,7 @@ export const AQIProvider = ({ children }) => {
         errorData,
         setErrorData,
         ecoScore,
+        weatherData,
         loadDataForLocation,
         locationName,
         coords,

@@ -3,10 +3,11 @@ const router = express.Router();
 const axios = require('axios');
 const AQIData = require('../models/AQIData');
 const dotenv = require('dotenv');
+const path = require('path');
 
 // We try to use the backend .env, but if it doesn't have the API key,
 // we'll instruct the user or fallback
-dotenv.config({ path: '../.env' }); // try to read from root if possible
+dotenv.config({ path: path.join(__dirname, '../../.env') }); // try to read from root if possible
 
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || process.env.VITE_OWM_API_KEY;
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
@@ -159,68 +160,181 @@ router.get('/predict', async (req, res) => {
 
         // 2b. Implement intelligent Cold Start Backfill
         // If we don't have 6 days in the DB, we shouldn't copy today's exact values 6 times.
-        // Instead, we create a generalized region baseline or use the oldest known data point to interpolate.
+        // Instead, we use the Open-Meteo API to gather actual historical weather and air quality for the last 6 days.
         const missingDaysCount = 6 - historyUniqueDays.length;
 
         if (missingDaysCount > 0) {
-            // General reasonable fallbacks if the DB is completely empty for this location
-            let fallbackData = {
-                pm2_5: pollutionData.components.pm2_5 || 15,
-                pm10: pollutionData.components.pm10 || 20,
-                no2: pollutionData.components.no2 || 10,
-                so2: pollutionData.components.so2 || 5,
-                co: (pollutionData.components.co / 10) || 20, // adjust OWM CO unit
-                o3: pollutionData.components.o3 || 30,
-                temperature: weatherData.main.temp || 20,
-                humidity: weatherData.main.humidity || 50,
-                wind_speed: weatherData.wind.speed || 5,
-                wind_direction: weatherData.wind.deg || 180,
-                pressure: weatherData.main.pressure || 1013,
-                aqi: usEpaAqi || 50
-            };
+            let backfillSuccess = false;
+            try {
+                const t6 = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+                const t1 = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
+                const t6Str = t6.toISOString().substring(0, 10);
+                const t1Str = t1.toISOString().substring(0, 10);
 
-            // If we have at least 1 historical record, use the oldest one as our baseline to backfill
-            if (historyUniqueDays.length > 0) {
-                const oldestKnown = historyUniqueDays[0];
-                fallbackData = {
-                    pm2_5: oldestKnown.pollution.pm2_5 || fallbackData.pm2_5,
-                    pm10: oldestKnown.pollution.pm10 || fallbackData.pm10,
-                    no2: oldestKnown.pollution.no2 || fallbackData.no2,
-                    so2: oldestKnown.pollution.so2 || fallbackData.so2,
-                    co: oldestKnown.pollution.co || fallbackData.co,
-                    o3: oldestKnown.pollution.o3 || fallbackData.o3,
-                    temperature: oldestKnown.weather.temp || fallbackData.temperature,
-                    humidity: oldestKnown.weather.humidity || fallbackData.humidity,
-                    wind_speed: oldestKnown.weather.wind_speed || fallbackData.wind_speed,
-                    wind_direction: oldestKnown.weather.wind_deg || fallbackData.wind_direction,
-                    pressure: oldestKnown.weather.pressure || fallbackData.pressure,
-                    aqi: oldestKnown.pollution.aqi || fallbackData.aqi
-                };
+                const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&start_date=${t6Str}&end_date=${t1Str}&hourly=pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${t6Str}&end_date=${t1Str}&hourly=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms`;
+
+                const [aqRes, weatherRes] = await Promise.all([
+                    axios.get(aqUrl),
+                    axios.get(weatherUrl)
+                ]);
+
+                const aqHourly = aqRes.data.hourly;
+                const weatherHourly = weatherRes.data.hourly;
+
+                if (aqHourly && weatherHourly && aqHourly.time.length >= 144 && weatherHourly.time.length >= 144) {
+                    const tempPayload = [];
+                    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
+                        const startIdx = dayOffset * 24;
+                        let pm25Sum = 0, pm10Sum = 0, no2Sum = 0, so2Sum = 0, coSum = 0, o3Sum = 0;
+                        let tempSum = 0, humSum = 0, pressSum = 0, windSpeedSum = 0, windDirSum = 0;
+
+                        for (let h = 0; h < 24; h++) {
+                            const idx = startIdx + h;
+                            pm25Sum += aqHourly.pm2_5[idx] || 0;
+                            pm10Sum += aqHourly.pm10[idx] || 0;
+                            coSum += aqHourly.carbon_monoxide[idx] || 0;
+                            no2Sum += aqHourly.nitrogen_dioxide[idx] || 0;
+                            so2Sum += aqHourly.sulphur_dioxide[idx] || 0;
+                            o3Sum += aqHourly.ozone[idx] || 0;
+
+                            tempSum += weatherHourly.temperature_2m[idx] || 0;
+                            humSum += weatherHourly.relative_humidity_2m[idx] || 0;
+                            pressSum += weatherHourly.surface_pressure[idx] || 0;
+                            windSpeedSum += weatherHourly.wind_speed_10m[idx] || 0;
+                            windDirSum += weatherHourly.wind_direction_10m[idx] || 0;
+                        }
+
+                        const pm25Avg = pm25Sum / 24;
+                        const pm10Avg = pm10Sum / 24;
+                        const coAvg = coSum / 24;
+                        const no2Avg = no2Sum / 24;
+                        const so2Avg = so2Sum / 24;
+                        const o3Avg = o3Sum / 24;
+
+                        const tempAvg = tempSum / 24;
+                        const humAvg = humSum / 24;
+                        const pressAvg = pressSum / 24;
+                        const windSpeedAvg = windSpeedSum / 24;
+                        const windDirAvg = windDirSum / 24;
+
+                        const dailyAqi = Math.max(
+                            naqiCalc(pm25Avg, pm25Bp),
+                            naqiCalc(pm10Avg, pm10Bp),
+                            naqiCalc(no2Avg, no2Bp),
+                            naqiCalc(so2Avg, so2Bp),
+                            naqiCalc(o3Avg, o3Bp),
+                            naqiCalc(coAvg / 1000, coBp)
+                        );
+
+                        const currentDayDate = new Date(Date.now() - (6 - dayOffset) * 24 * 60 * 60 * 1000);
+
+                        tempPayload.push({
+                            pm2_5: pm25Avg,
+                            pm10: pm10Avg,
+                            no2: no2Avg,
+                            so2: so2Avg,
+                            co: coAvg,
+                            o3: o3Avg,
+                            temperature: tempAvg,
+                            humidity: humAvg,
+                            wind_speed: windSpeedAvg,
+                            wind_direction: windDirAvg,
+                            pressure: pressAvg,
+                            day_of_week: currentDayDate.getDay(),
+                            month: currentDayDate.getMonth() + 1,
+                            aqi: dailyAqi
+                        });
+                    }
+
+                    // Push these Open-Meteo days as the first parts of our sequence.
+                    for (let i = 0; i < missingDaysCount; i++) {
+                        const item = tempPayload[i];
+                        historyPayload.push({
+                            pm2_5: item.pm2_5,
+                            pm10: item.pm10,
+                            no2: item.no2,
+                            so2: item.so2,
+                            co: item.co / 10, // ML model scale
+                            o3: item.o3,
+                            temperature: item.temperature,
+                            humidity: item.humidity,
+                            wind_speed: item.wind_speed,
+                            wind_direction: item.wind_direction,
+                            pressure: item.pressure,
+                            day_of_week: item.day_of_week,
+                            month: item.month,
+                            aqi: item.aqi
+                        });
+                    }
+                    backfillSuccess = true;
+                    console.log(`[Backfill] Successfully backfilled ${missingDaysCount} missing days via Open-Meteo API.`);
+                }
+            } catch (openMeteoError) {
+                console.error("[Backfill] Open-Meteo API backfill failed. Falling back to naive method.", openMeteoError.message);
             }
 
-            // Fill the missing days (pushing to the start of the array basically)
-            for (let i = missingDaysCount; i > 0; i--) {
-                const backfillDate = new Date(Date.now() - (i + historyUniqueDays.length) * 86400000);
+            // Naive noise-based fallback if Open-Meteo failed
+            if (!backfillSuccess) {
+                // General reasonable fallbacks if the DB is completely empty for this location
+                let fallbackData = {
+                    pm2_5: pollutionData.components.pm2_5 || 15,
+                    pm10: pollutionData.components.pm10 || 20,
+                    no2: pollutionData.components.no2 || 10,
+                    so2: pollutionData.components.so2 || 5,
+                    co: pollutionData.components.co || 200, // unscaled fallback CO
+                    o3: pollutionData.components.o3 || 30,
+                    temperature: weatherData.main.temp || 20,
+                    humidity: weatherData.main.humidity || 50,
+                    wind_speed: weatherData.wind.speed || 5,
+                    wind_direction: weatherData.wind.deg || 180,
+                    pressure: weatherData.main.pressure || 1013,
+                    aqi: usEpaAqi || 50
+                };
 
-                // Add minor random noise (±5%) so the LSTM doesn't see a completely flat line which breaks scaling
-                const addNoise = (val) => val * (1 + (Math.random() * 0.1 - 0.05));
+                // If we have at least 1 historical record, use the oldest one as our baseline to backfill
+                if (historyUniqueDays.length > 0) {
+                    const oldestKnown = historyUniqueDays[0];
+                    fallbackData = {
+                        pm2_5: oldestKnown.pollution.pm2_5 || fallbackData.pm2_5,
+                        pm10: oldestKnown.pollution.pm10 || fallbackData.pm10,
+                        no2: oldestKnown.pollution.no2 || fallbackData.no2,
+                        so2: oldestKnown.pollution.so2 || fallbackData.so2,
+                        co: oldestKnown.pollution.co || fallbackData.co,
+                        o3: oldestKnown.pollution.o3 || fallbackData.o3,
+                        temperature: oldestKnown.weather.temp || fallbackData.temperature,
+                        humidity: oldestKnown.weather.humidity || fallbackData.humidity,
+                        wind_speed: oldestKnown.weather.wind_speed || fallbackData.wind_speed,
+                        wind_direction: oldestKnown.weather.wind_deg || fallbackData.wind_direction,
+                        pressure: oldestKnown.weather.pressure || fallbackData.pressure,
+                        aqi: oldestKnown.pollution.aqi || fallbackData.aqi
+                    };
+                }
 
-                historyPayload.push({
-                    pm2_5: Math.max(0, addNoise(fallbackData.pm2_5)),
-                    pm10: Math.max(0, addNoise(fallbackData.pm10)),
-                    no2: Math.max(0, addNoise(fallbackData.no2)),
-                    so2: Math.max(0, addNoise(fallbackData.so2)),
-                    co: Math.max(0, addNoise(fallbackData.co)),
-                    o3: Math.max(0, addNoise(fallbackData.o3)),
-                    temperature: fallbackData.temperature, // keep weather somewhat stable
-                    humidity: Math.max(0, Math.min(100, addNoise(fallbackData.humidity))),
-                    wind_speed: Math.max(0, fallbackData.wind_speed),
-                    wind_direction: fallbackData.wind_direction,
-                    pressure: fallbackData.pressure,
-                    day_of_week: backfillDate.getDay(),
-                    month: backfillDate.getMonth() + 1,
-                    aqi: Math.max(1, addNoise(fallbackData.aqi))
-                });
+                // Fill the missing days (pushing to the start of the array basically)
+                for (let i = missingDaysCount; i > 0; i--) {
+                    const backfillDate = new Date(Date.now() - (i + historyUniqueDays.length) * 86400000);
+
+                    // Add minor random noise (±5%) so the LSTM doesn't see a completely flat line which breaks scaling
+                    const addNoise = (val) => val * (1 + (Math.random() * 0.1 - 0.05));
+
+                    historyPayload.push({
+                        pm2_5: Math.max(0, addNoise(fallbackData.pm2_5)),
+                        pm10: Math.max(0, addNoise(fallbackData.pm10)),
+                        no2: Math.max(0, addNoise(fallbackData.no2)),
+                        so2: Math.max(0, addNoise(fallbackData.so2)),
+                        co: Math.max(0, addNoise(fallbackData.co)) / 10, // ML model scale
+                        o3: Math.max(0, addNoise(fallbackData.o3)),
+                        temperature: fallbackData.temperature, // keep weather somewhat stable
+                        humidity: Math.max(0, Math.min(100, addNoise(fallbackData.humidity))),
+                        wind_speed: Math.max(0, fallbackData.wind_speed),
+                        wind_direction: fallbackData.wind_direction,
+                        pressure: fallbackData.pressure,
+                        day_of_week: backfillDate.getDay(),
+                        month: backfillDate.getMonth() + 1,
+                        aqi: Math.max(1, addNoise(fallbackData.aqi))
+                    });
+                }
             }
         }
 
@@ -231,7 +345,7 @@ router.get('/predict', async (req, res) => {
                 pm10: h.pollution.pm10 || 20,
                 no2: h.pollution.no2 || 10,
                 so2: h.pollution.so2 || 5,
-                co: h.pollution.co || 20,
+                co: (h.pollution.co != null && !isNaN(h.pollution.co)) ? (h.pollution.co / 10) : 20,
                 o3: h.pollution.o3 || 30,
                 temperature: h.weather.temp || 20,
                 humidity: h.weather.humidity || 50,
@@ -591,6 +705,67 @@ CRITICAL INSTRUCTION: Your responses must be extremely concise. Provide a maximu
              }
         }
         res.status(500).json({ error: 'Failed to communicate with AI chat service' });
+    }
+});
+
+// New historical AQI data endpoint using Open-Meteo
+router.get('/historical', async (req, res) => {
+    try {
+        const { lat, lon, period } = req.query;
+
+        if (!lat || !lon) {
+            return res.status(400).json({ error: 'Latitude and longitude are required' });
+        }
+
+        let days = 7;
+        if (period === '30days') days = 30;
+        if (period === '12months') days = 365;
+
+        const dateTo = new Date();
+        const dateFrom = new Date();
+        dateFrom.setDate(dateFrom.getDate() - days);
+
+        const dateToStr = dateTo.toISOString().substring(0, 10);
+        const dateFromStr = dateFrom.toISOString().substring(0, 10);
+
+        const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&start_date=${dateFromStr}&end_date=${dateToStr}&hourly=pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
+
+        console.log(`[Historical] Fetching Open-Meteo AQ data from ${dateFromStr} to ${dateToStr} for lat=${lat}, lon=${lon}`);
+        const response = await axios.get(url);
+        const hourly = response.data.hourly;
+        const results = [];
+
+        if (hourly && hourly.time) {
+            for (let i = 0; i < hourly.time.length; i++) {
+                const time = hourly.time[i]; // e.g. "2026-06-03T12:00"
+                const localTime = `${time}:00`; // Format to look like local ISO string for splitting by 'T'
+
+                if (hourly.pm2_5 && hourly.pm2_5[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'pm25', value: hourly.pm2_5[i] });
+                }
+                if (hourly.pm10 && hourly.pm10[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'pm10', value: hourly.pm10[i] });
+                }
+                if (hourly.carbon_monoxide && hourly.carbon_monoxide[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'co', value: hourly.carbon_monoxide[i] });
+                }
+                if (hourly.nitrogen_dioxide && hourly.nitrogen_dioxide[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'no2', value: hourly.nitrogen_dioxide[i] });
+                }
+                if (hourly.sulphur_dioxide && hourly.sulphur_dioxide[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'so2', value: hourly.sulphur_dioxide[i] });
+                }
+                if (hourly.ozone && hourly.ozone[i] != null) {
+                    results.push({ date: { local: localTime }, parameter: 'o3', value: hourly.ozone[i] });
+                }
+            }
+        }
+
+        return res.json({ results });
+
+    } catch (error) {
+        console.error('[Historical] Error fetching data:', error.message);
+        res.status(500).json({ error: 'Failed to fetch historical data from Open-Meteo.' });
     }
 });
 

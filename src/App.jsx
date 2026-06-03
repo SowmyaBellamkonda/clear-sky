@@ -7,6 +7,7 @@ import ForecastCards from './components/ForecastCards';
 import AssistantPanel from './components/AssistantPanel';
 import MapOverlay from './components/MapOverlay';
 import GreenScorePanel from './components/GreenScorePanel';
+import HistoricalAnalysis from './components/HistoricalAnalysis';
 import useAQIAlerts from './hooks/useAQIAlerts';
 import { AQI_LEVELS } from './utils/theme';
 import './index.css';
@@ -85,6 +86,11 @@ const Dashboard = () => {
           <div className="side-column fade-in-up" style={{ animationDelay: '0.2s' }}>
             <GreenScorePanel />
           </div>
+        </div>
+        
+        {/* Full width historical analysis spanning below the grid block */}
+        <div style={{ marginTop: '40px' }}>
+          <HistoricalAnalysis />
         </div>
       </main>
 

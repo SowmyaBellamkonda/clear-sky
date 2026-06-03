@@ -38,7 +38,8 @@ export const fetchAqiData = async (lat, lon) => {
             locationName: data.location || "Unknown Location",
             forecastIntervals,
             mlPrediction: data.ml_prediction,
-            ecoScore
+            ecoScore,
+            weatherData: data.current.weather
         };
 
     } catch (error) {
@@ -108,4 +109,15 @@ export const reverseGeocode = async (lat, lon) => {
     }
 
     return "Unknown Location";
+};
+
+
+// Fetch historical measurements
+export const fetchHistoricalData = async (lat, lon, period) => {
+    const response = await fetch(`${BACKEND_URL}/historical?lat=${lat}&lon=${lon}&period=${period}`);
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to fetch historical data");
+    }
+    return response.json();
 };

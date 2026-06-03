@@ -1,15 +1,20 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const connectDB = require('./db');
-const apiRoutes = require('./routes/api');
 const dns = require('node:dns');
+const path = require('path');
 
 // Fix for Node 17+ on Windows where IPv6 resolution fails dynamically on some ISPs (ENOTFOUND)
 dns.setDefaultResultOrder('ipv4first');
 
-// Load environment variables (look for .env in backend, or fall back to defaults)
-dotenv.config();
+// Load environment variables (look for .env in backend, or fall back to root .env)
+dotenv.config(); // Local backend/.env first
+if (!process.env.OPENAQ_API_KEY) {
+    dotenv.config({ path: path.join(__dirname, '../.env') });
+}
+
+const connectDB = require('./db');
+const apiRoutes = require('./routes/api');
 
 // Connect to MongoDB
 connectDB();
