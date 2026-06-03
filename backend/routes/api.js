@@ -615,14 +615,80 @@ router.get('/eco-score', async (req, res) => {
         const humidity = weatherRes.data?.main?.humidity;
 
         // Call ML service for eco-score
-        const ecoRes = await axios.get(
-            `${ML_SERVICE_URL}/eco-score?lat=${lat}&lon=${lon}&aqi=${usAqi}${temp != null ? `&temp=${temp}` : ''}${humidity != null ? `&humidity=${humidity}` : ''}`
-        );
+        let ecoData;
+        try {
+            const ecoRes = await axios.get(
+                `${ML_SERVICE_URL}/eco-score?lat=${lat}&lon=${lon}&aqi=${usAqi}${temp != null ? `&temp=${temp}` : ''}${humidity != null ? `&humidity=${humidity}` : ''}`
+            );
+            ecoData = ecoRes.data;
+        } catch (mlError) {
+            console.error('Error calling ML service for eco-score, calculating fallback locally:', mlError.message);
+            
+            // Local fallback calculation matching ML service compute_eco_score logic
+            const ndvi = 0.3; // Default fallback greenness
+            const ndvi_score = Math.max(0, Math.min(100, (ndvi / 0.7) * 100));
+            const aqi_score = Math.max(0, Math.min(100, ((500 - usAqi) / 500) * 100));
+            
+            let temp_score = 100;
+            if (temp != null) {
+                if (temp < 15) temp_score = Math.max(0, 100 - (15 - temp) * 5);
+                else if (temp > 30) temp_score = Math.max(0, 100 - (temp - 30) * 5);
+            }
+            
+            let humidity_score = 100;
+            if (humidity != null) {
+                if (humidity < 40) humidity_score = Math.max(0, 100 - (40 - humidity) * 3);
+                else if (humidity > 70) humidity_score = Math.max(0, 100 - (humidity - 70) * 3);
+            }
+            
+            const eco_score = Math.max(0, Math.min(100, Math.round(
+                ndvi_score * 0.40 +
+                aqi_score * 0.35 +
+                temp_score * 0.15 +
+                (humidity != null ? humidity_score * 0.10 : 0)
+            )));
+            
+            let label = "Moderate";
+            let recommendation = "Some environmental stress. Limit strenuous outdoor activity.";
+            if (eco_score >= 80) {
+                label = "Thriving";
+                recommendation = "Rich vegetation and clean air. Ideal for outdoor activities.";
+            } else if (eco_score >= 60) {
+                label = "Healthy";
+                recommendation = "Good green cover and acceptable air quality. Enjoy the outdoors.";
+            } else if (eco_score >= 20) {
+                label = "Degraded";
+                recommendation = "Low vegetation and/or poor air quality. Stay indoors if sensitive.";
+            } else if (eco_score < 20) {
+                label = "Critical";
+                recommendation = "Severe environmental degradation. Avoid outdoor exposure.";
+            }
+            
+            ecoData = {
+                eco_score,
+                label,
+                recommendation,
+                sources: {
+                    ndvi: "fallback:error",
+                    ndvi_error: mlError.message,
+                    weather: "backend-local",
+                },
+                breakdown: {
+                    ndvi,
+                    ndvi_score,
+                    aqi_score,
+                    temp: temp != null ? temp : 25,
+                    temp_score,
+                    humidity: humidity != null ? humidity : 50,
+                    humidity_score,
+                }
+            };
+        }
 
         res.json({
-            ...ecoRes.data,
+            ...ecoData,
             sources: {
-                ...(ecoRes.data.sources || {}),
+                ...(ecoData.sources || {}),
                 aqi: {
                     source: 'openweathermap-air-pollution',
                     raw_owm_aqi: owmAqi,
