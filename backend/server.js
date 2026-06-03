@@ -23,11 +23,22 @@ const app = express();
 
 const corsOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '')
     .split(',')
-    .map(origin => origin.trim())
+    .map(origin => origin.trim().replace(/\/$/, '')) // Strip trailing slashes
     .filter(Boolean);
 
+const corsOptions = {};
+if (corsOrigins.length > 0) {
+    if (corsOrigins.includes('*')) {
+        corsOptions.origin = '*';
+    } else {
+        corsOptions.origin = corsOrigins;
+    }
+} else {
+    corsOptions.origin = '*'; // Default to allow all if not specified
+}
+
 // Middleware
-app.use(cors(corsOrigins.length > 0 ? { origin: corsOrigins } : undefined));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Enable if you're behind a reverse proxy (Heroku, Bluemix, AWS ELB, Nginx, etc)
