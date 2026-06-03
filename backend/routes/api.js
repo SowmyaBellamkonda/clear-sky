@@ -11,7 +11,11 @@ dotenv.config({ path: path.join(__dirname, '../../.env') }); // try to read from
 
 const rawOwmKey = process.env.OPENWEATHER_API_KEY || process.env.VITE_OWM_API_KEY || '';
 const OPENWEATHER_API_KEY = rawOwmKey.trim().substring(0, 32);
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+let rawMlUrl = process.env.ML_SERVICE_URL || 'http://localhost:8000';
+if (rawMlUrl && !rawMlUrl.startsWith('http://') && !rawMlUrl.startsWith('https://')) {
+    rawMlUrl = `http://${rawMlUrl}`;
+}
+const ML_SERVICE_URL = rawMlUrl;
 
 const requireOpenWeatherKey = (res) => {
     if (!OPENWEATHER_API_KEY) {
@@ -46,62 +50,67 @@ router.get('/predict', async (req, res) => {
 
         // --- India NAQI (National Air Quality Index — CPCB) ---
         // All breakpoints in µg/m³ (same as OWM, no conversion needed)
+        // Fixed: Breakpoints adjusted to be continuous so fractional concentrations do not fall in gaps and return 500.
+        // Fixed: Cp values are capped at the highest Ch breakpoint to handle overflows.
         const naqiCalc = (Cp, breakpoints) => {
+            const maxBp = breakpoints[breakpoints.length - 1];
+            const cappedCp = Math.min(Cp, maxBp.Ch);
+            
             for (const bp of breakpoints) {
-                if (Cp >= bp.Cl && Cp <= bp.Ch) {
-                    return Math.round(((bp.Ih - bp.Il) / (bp.Ch - bp.Cl)) * (Cp - bp.Cl) + bp.Il);
+                if (cappedCp >= bp.Cl && cappedCp <= bp.Ch) {
+                    return Math.round(((bp.Ih - bp.Il) / (bp.Ch - bp.Cl)) * (cappedCp - bp.Cl) + bp.Il);
                 }
             }
-            return breakpoints[breakpoints.length - 1].Ih;
+            return maxBp.Ih;
         };
 
         const pm25Bp = [
             { Cl: 0, Ch: 30, Il: 0, Ih: 50 },
-            { Cl: 31, Ch: 60, Il: 51, Ih: 100 },
-            { Cl: 61, Ch: 90, Il: 101, Ih: 200 },
-            { Cl: 91, Ch: 120, Il: 201, Ih: 300 },
-            { Cl: 121, Ch: 250, Il: 301, Ih: 400 },
-            { Cl: 251, Ch: 500, Il: 401, Ih: 500 },
+            { Cl: 30, Ch: 60, Il: 50, Ih: 100 },
+            { Cl: 60, Ch: 90, Il: 100, Ih: 200 },
+            { Cl: 90, Ch: 120, Il: 200, Ih: 300 },
+            { Cl: 120, Ch: 250, Il: 300, Ih: 400 },
+            { Cl: 250, Ch: 500, Il: 400, Ih: 500 },
         ];
         const pm10Bp = [
             { Cl: 0, Ch: 50, Il: 0, Ih: 50 },
-            { Cl: 51, Ch: 100, Il: 51, Ih: 100 },
-            { Cl: 101, Ch: 250, Il: 101, Ih: 200 },
-            { Cl: 251, Ch: 350, Il: 201, Ih: 300 },
-            { Cl: 351, Ch: 430, Il: 301, Ih: 400 },
-            { Cl: 431, Ch: 600, Il: 401, Ih: 500 },
+            { Cl: 50, Ch: 100, Il: 50, Ih: 100 },
+            { Cl: 100, Ch: 250, Il: 100, Ih: 200 },
+            { Cl: 250, Ch: 350, Il: 200, Ih: 300 },
+            { Cl: 350, Ch: 430, Il: 300, Ih: 400 },
+            { Cl: 430, Ch: 600, Il: 400, Ih: 500 },
         ];
         const no2Bp = [
             { Cl: 0, Ch: 40, Il: 0, Ih: 50 },
-            { Cl: 41, Ch: 80, Il: 51, Ih: 100 },
-            { Cl: 81, Ch: 180, Il: 101, Ih: 200 },
-            { Cl: 181, Ch: 280, Il: 201, Ih: 300 },
-            { Cl: 281, Ch: 400, Il: 301, Ih: 400 },
-            { Cl: 401, Ch: 800, Il: 401, Ih: 500 },
+            { Cl: 40, Ch: 80, Il: 50, Ih: 100 },
+            { Cl: 80, Ch: 180, Il: 100, Ih: 200 },
+            { Cl: 180, Ch: 280, Il: 200, Ih: 300 },
+            { Cl: 280, Ch: 400, Il: 300, Ih: 400 },
+            { Cl: 400, Ch: 800, Il: 400, Ih: 500 },
         ];
         const so2Bp = [
             { Cl: 0, Ch: 40, Il: 0, Ih: 50 },
-            { Cl: 41, Ch: 80, Il: 51, Ih: 100 },
-            { Cl: 81, Ch: 380, Il: 101, Ih: 200 },
-            { Cl: 381, Ch: 800, Il: 201, Ih: 300 },
-            { Cl: 801, Ch: 1600, Il: 301, Ih: 400 },
-            { Cl: 1601, Ch: 2400, Il: 401, Ih: 500 },
+            { Cl: 40, Ch: 80, Il: 50, Ih: 100 },
+            { Cl: 80, Ch: 380, Il: 100, Ih: 200 },
+            { Cl: 380, Ch: 800, Il: 200, Ih: 300 },
+            { Cl: 800, Ch: 1600, Il: 300, Ih: 400 },
+            { Cl: 1600, Ch: 2400, Il: 400, Ih: 500 },
         ];
         const o3Bp = [
             { Cl: 0, Ch: 50, Il: 0, Ih: 50 },
-            { Cl: 51, Ch: 100, Il: 51, Ih: 100 },
-            { Cl: 101, Ch: 168, Il: 101, Ih: 200 },
-            { Cl: 169, Ch: 208, Il: 201, Ih: 300 },
-            { Cl: 209, Ch: 748, Il: 301, Ih: 400 },
-            { Cl: 749, Ch: 1000, Il: 401, Ih: 500 },
+            { Cl: 50, Ch: 100, Il: 50, Ih: 100 },
+            { Cl: 100, Ch: 168, Il: 100, Ih: 200 },
+            { Cl: 168, Ch: 208, Il: 200, Ih: 300 },
+            { Cl: 208, Ch: 748, Il: 300, Ih: 400 },
+            { Cl: 748, Ch: 1000, Il: 400, Ih: 500 },
         ];
         const coBp = [
             { Cl: 0, Ch: 1.0, Il: 0, Ih: 50 },
-            { Cl: 1.1, Ch: 2.0, Il: 51, Ih: 100 },
-            { Cl: 2.1, Ch: 10, Il: 101, Ih: 200 },
-            { Cl: 10.1, Ch: 17, Il: 201, Ih: 300 },
-            { Cl: 17.1, Ch: 34, Il: 301, Ih: 400 },
-            { Cl: 34.1, Ch: 50, Il: 401, Ih: 500 },
+            { Cl: 1.0, Ch: 2.0, Il: 50, Ih: 100 },
+            { Cl: 2.0, Ch: 10.0, Il: 100, Ih: 200 },
+            { Cl: 10.0, Ch: 17.0, Il: 200, Ih: 300 },
+            { Cl: 17.0, Ch: 34.0, Il: 300, Ih: 400 },
+            { Cl: 34.0, Ch: 50.0, Il: 400, Ih: 500 },
         ];
 
         const comp = pollutionData.components;
