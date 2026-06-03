@@ -896,7 +896,7 @@ body {
 
 @media (max-width: 480px) {
   .aqi-number {
-    font-size: 6rem;
+    font-size: 5.5rem;
   }
 
   .forecast-container {
@@ -907,6 +907,40 @@ body {
     padding: 1rem;
     flex-wrap: wrap;
     gap: 16px;
+  }
+
+  .assistant-panel {
+    width: calc(100vw - 32px) !important;
+    right: 16px !important;
+    bottom: 85px !important;
+    max-height: 65vh !important;
+  }
+
+  .floating-assistant-btn {
+    bottom: 16px !important;
+    right: 16px !important;
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .floating-map-btn {
+    bottom: 16px !important;
+    right: 76px !important;
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .aqi-main-card {
+    padding: 24px 16px !important;
+  }
+
+  .aqi-metrics {
+    gap: 12px !important;
+  }
+
+  .map-modal {
+    width: 95vw !important;
+    height: 90vh !important;
   }
 }
 

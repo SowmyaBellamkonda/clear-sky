@@ -26,7 +26,8 @@ _service_account_info = None
 _ndvi_cache = {}  # key: "lat,lon" -> { ndvi, source, timestamp }
 CACHE_TTL = 3600  # 1 hour
 
-OWM_API_KEY = os.environ.get("OWM_API_KEY", "") or os.environ.get("VITE_OWM_API_KEY", "")
+raw_owm_key = os.environ.get("OWM_API_KEY", "") or os.environ.get("VITE_OWM_API_KEY", "")
+OWM_API_KEY = raw_owm_key.strip()[:32] if raw_owm_key else ""
 
 
 def _get_service_account_info() -> dict:

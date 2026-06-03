@@ -3,7 +3,8 @@
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
 const BACKEND_URL = `${API_BASE}/api`;
 const GEO_URL = 'https://api.openweathermap.org/geo/1.0';
-const API_KEY = import.meta.env.VITE_OWM_API_KEY;
+const rawKey = import.meta.env.VITE_OWM_API_KEY || '';
+const API_KEY = rawKey.trim().substring(0, 32);
 
 
 // MAIN FUNCTION
