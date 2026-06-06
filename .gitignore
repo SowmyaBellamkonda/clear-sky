@@ -54,3 +54,7 @@ test_output.json
 Thumbs.db
 .AppleDouble
 .LSOverride
+.env
+node_modules/
+__pycache__/
+*.pyc
