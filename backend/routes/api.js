@@ -391,10 +391,15 @@ router.get('/predict', async (req, res) => {
         // 3. Call Python ML Microservice
         let mlPrediction = null;
         try {
-            const mlRes = await axios.post(`${ML_SERVICE_URL}/predict`, mlFeatures);
+            // Ensure no double slashes in the URL
+            const cleanBaseUrl = ML_SERVICE_URL.replace(/\/+$/, '');
+            const mlRes = await axios.post(`${cleanBaseUrl}/predict`, mlFeatures);
             mlPrediction = mlRes.data;
         } catch (mlError) {
             console.error('Error calling ML service:', mlError.message);
+            if (mlError.response) {
+                console.error('ML Service Error Data:', mlError.response.data);
+            }
         }
 
         // 4. Save this data point to MongoDB for future lag features
